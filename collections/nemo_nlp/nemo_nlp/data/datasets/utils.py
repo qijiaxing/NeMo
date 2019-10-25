@@ -561,7 +561,6 @@ def get_intents_and_slots(files, slot_labels):
 
     intent_names = []
     intent_queries = []
-    # intent_queries.append('sentence   label') # Should not do this as slot would go out of sync
     slot_tags = []
 
     for index, file in enumerate(files):
@@ -605,21 +604,31 @@ def get_slots(files):
     slot_labels['O'] = str(count)
     return slot_labels
 
+def partition_df_data(intent_queries, slot_tags, split=0.1):
+    n = len(intent_queries)
+    n_dev = int(n * split)
+    dev_idx = set(random.sample(range(n), n_dev))
+    dev_intents, dev_slots, train_intents, train_slots = [], [], [], []
 
+    dev_intents.append('sentence\tlabel\n')
+    train_intents.append('sentence\tlabel\n')
 
-def process_dialogflow(data_dir, uncased, modes=['train', 'test'], dev_split=0):
+    for i, item in enumerate(intent_queries):
+        if i in dev_idx:
+            dev_intents.append(item)
+            dev_slots.append(slot_tags[i])
+        else:
+            train_intents.append(item)
+            train_slots.append(slot_tags[i])
+    return train_intents, train_slots, dev_intents, dev_slots
+
+def process_dialogflow(data_dir, uncased, modes=['train', 'test'], dev_split=0.1):
     if not os.path.exists(data_dir):
         link = 'www.dialogflow.com'
         raise ValueError(f'Data not found at {data_dir}. '
                          'Export your dialogflow data from {link} and unzip at {data_dir}.')
 
-    outfold = f'{data_dir}/nemo-processed'
-    # outfold = f'{infold}/GearStore1stPhase/nemo-processed'
-    # infold = f'{infold}/GearStore1stPhase'
-    # std_format = f'{infold}/std_format'
-
-    #TO DO  - add for test
-    mode = 'train'
+    outfold = f'{data_dir}/dialogflow/nemo-processed'
 
     #TO DO  - check for nemo-processed directory already exists. If exists, skip the entire creation steps below.
 
@@ -629,47 +638,28 @@ def process_dialogflow(data_dir, uncased, modes=['train', 'test'], dev_split=0):
 
     slot_labels = get_slots(files)
 
-    # print(slot_labels)
-    # print(len(slot_labels))
-
     intent_queries, intent_names, slot_tags = get_intents_and_slots(files, slot_labels)
 
-    # print(intent_names)
-    # print(intent_queries)
-    # print(len(intent_queries))
-    # print(len(intent_names))
-    # print(len(slot_tags))
-    # print(slot_tags)
+    train_queries, train_slots, test_queries, test_slots = partition_df_data(intent_queries, slot_tags, split=dev_split)
 
-    # for i, item in enumerate(intent_queries):
-    #     if '6' in slot_tags[i].split():
-    #         print(intent_queries[i], slot_tags[i])
+    write_df_files(train_queries, f'{outfold}/train.tsv')
+    write_df_files(train_slots, f'{outfold}/train_slots.tsv')
 
+    write_df_files(test_queries, f'{outfold}/test.tsv')
+    write_df_files(test_slots, f'{outfold}/test_slots.tsv')
 
-    with open(os.path.join(outfold, mode + '.tsv'), 'w') as f:
-        f.write('sentence\tlabel\n')
-        # querytext = f'{querytext.strip()}\t{index}\n'
-        for item in intent_queries:
-            f.write(item)
-
-            
-
-    with open(f'{outfold}/{mode}_slots.tsv', 'w') as f:
-        for item in slot_tags:
-            f.write(item)    
-
-
-    with open(f'{outfold}/dict.intents.csv', 'w') as f:
-        for intent in intent_names:
-            intent = f'{intent.strip()}\n'
-            f.write(intent)    
-
-    with open(f'{outfold}/dict.slots.csv', 'w') as f:
-        for slot in slot_labels:
-            slot = f'{slot.strip()}\n'
-            f.write(slot)    
+    write_df_files(slot_labels, f'{outfold}/dict.slots.csv')
+    write_df_files(intent_names, f'{outfold}/dict.intents.csv')
+   
 
     return outfold
+
+
+def write_df_files(data, outfile):
+    with open(f'{outfile}', 'w') as f:
+        for item in data:
+            item = f'{item.strip()}\n'
+            f.write(item)   
 
 
 class JointIntentSlotDataDesc:
@@ -726,11 +716,7 @@ class JointIntentSlotDataDesc:
                 dataset_name)
         elif dataset_name == 'dialogflow':
             self.data_dir = process_dialogflow(data_dir, do_lower_case)    
-            # self.data_dir = ''.join([data_dir, '/GearStore1stPhase/nemo-processed'])
 
-            # num_intents = 15
-            # num_slots = 23
-            # pad_label = num_slots - 1
         elif dataset_name in set(['snips-light', 'snips-speak', 'snips-all']):
             self.data_dir = process_snips(data_dir, do_lower_case)
             if dataset_name.endswith('light'):
@@ -793,7 +779,7 @@ class SentenceClassificationDataDesc:
             self.num_labels = len(labels)
             self.eval_file = self.data_dir + '/test.tsv'
         else:
-            logger.info("Looks like you pass in a dataset name that isn't "
+            logger.info("Looks like you passed a dataset name that isn't "
                         "already supported by NeMo. Please make sure that "
                         "you build the preprocessing method for it.")
 
@@ -844,7 +830,7 @@ class LanguageModelDataDesc:
                 data_dir = download_wkt2(data_dir)
             self.data_dir = create_vocab_lm(data_dir, do_lower_case)
         else:
-            logger.info("Looks like you pass in a dataset name that isn't "
+            logger.info("Looks like you passed a dataset name that isn't "
                         "already supported by NeMo. Please make sure that "
                         "you build the preprocessing method for it.")
 
@@ -922,7 +908,7 @@ class BERTPretrainingDataDesc:
                 special_tokens,
                 train_file)
         else:
-            logger.info("Looks like you pass in a dataset name that isn't "
+            logger.info("Looks like you passed a dataset name that isn't "
                         "already supported by NeMo. Please make sure that "
                         "you build the preprocessing method for it.")
 
